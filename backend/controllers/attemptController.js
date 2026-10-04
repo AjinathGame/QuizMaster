@@ -224,3 +224,125 @@ export const submitAttempt = async (req, res) => {
     });
   }
 };
+
+
+
+export const getAttemptReview = async (req, res) => {
+  try {
+    const { attemptId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(attemptId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid attempt ID",
+      });
+    }
+
+    const attempt = await Attempt.findOne({
+      _id: attemptId,
+      userId: req.user._id,
+    });
+
+    if (!attempt) {
+      return res.status(404).json({
+        success: false,
+        message: "Attempt not found",
+      });
+    }
+
+    if (attempt.status !== "submitted") {
+      return res.status(400).json({
+        success: false,
+        message: "Attempt has not been submitted yet",
+      });
+    }
+
+    const quiz = await Quiz.findById(attempt.quizId);
+
+    if (!quiz) {
+      return res.status(404).json({
+        success: false,
+        message: "Quiz not found",
+      });
+    }
+
+    const answerMap = new Map(
+      attempt.answers.map((answer) => [
+        answer.questionId.toString(),
+        answer.selectedOption,
+      ])
+    );
+
+    let correctAnswers = 0;
+    let incorrectAnswers = 0;
+    let unanswered = 0;
+
+    const questions = quiz.questions.map((question) => {
+      const questionId = question._id.toString();
+      const selectedOption = answerMap.has(questionId)
+        ? answerMap.get(questionId)
+        : null;
+
+      const correctAnswerIndex = question.correctAnswer;
+      const isAnswered = selectedOption !== null &&
+        selectedOption !== undefined;
+
+      const isCorrect =
+        isAnswered && selectedOption === correctAnswerIndex;
+
+      if (!isAnswered) {
+        unanswered++;
+      } else if (isCorrect) {
+        correctAnswers++;
+      } else {
+        incorrectAnswers++;
+      }
+
+      return {
+        questionId,
+        question: question.question,
+        options: question.options,
+        selectedOption,
+        selectedAnswer: isAnswered
+          ? question.options[selectedOption]
+          : null,
+        correctAnswerIndex,
+        correctAnswer: question.options[correctAnswerIndex],
+        isCorrect,
+        explanation: question.explanation || "",
+      };
+    });
+
+    const totalQuestions = questions.length;
+    const percentage =
+      totalQuestions > 0
+        ? Math.round((correctAnswers / totalQuestions) * 100)
+        : 0;
+
+    return res.status(200).json({
+      success: true,
+      result: {
+        attemptId: attempt._id,
+        quizId: quiz._id,
+        topic: quiz.topic,
+        difficulty: quiz.difficulty,
+        score: attempt.score,
+        correctAnswers,
+        incorrectAnswers,
+        unanswered,
+        totalQuestions,
+        percentage,
+        startedAt: attempt.startedAt,
+        submittedAt: attempt.submittedAt,
+        questions,
+      },
+    });
+  } catch (error) {
+    console.error("Get attempt review error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch answer review",
+    });
+  }
+};

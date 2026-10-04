@@ -219,50 +219,7 @@ export default function Navbar({ pageName = "QuizMaster", onLogout }) {
                         {/* Logged In */}
                         {isLoggedIn && (
                             <>
-                                {/* Notifications */}
-                                <div className="relative" ref={notificationRef}>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            setNotificationOpen(!notificationOpen);
-                                            setProfileOpen(false);
-                                        }}
-                                        className="relative grid h-10 w-10 place-items-center rounded-xl text-slate-500 transition hover:bg-blue-50 hover:text-blue-600"
-                                        aria-label="Notifications"
-                                        aria-expanded={notificationOpen}
-                                    >
-                                        <Bell size={20} />
-                                        <span className="absolute right-2 top-2 h-2 w-2 rounded-full border-2 border-white bg-red-500" />
-                                    </button>
-
-                                    {notificationOpen && (
-                                        <div className="navbar-popup absolute right-0 top-full z-50 mt-3 w-[290px] overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_15px_45px_rgba(15,23,42,0.12)] sm:w-[340px]">
-                                            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-4">
-                                                <h3 className="font-bold text-slate-800">
-                                                    Notifications
-                                                </h3>
-                                                <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-600">
-                                                    Updates
-                                                </span>
-                                            </div>
-
-                                            <div className="px-4 py-8 text-center">
-                                                <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-full bg-slate-100 text-slate-400">
-                                                    <Bell size={21} />
-                                                </div>
-
-                                                <p className="text-sm font-semibold text-slate-700">
-                                                    You're all caught up
-                                                </p>
-
-                                                <p className="mt-1 text-xs text-slate-400">
-                                                    New notifications will appear here.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
+                               
                                 {/* User Profile */}
                                 <div className="relative" ref={profileRef}>
                                     <button

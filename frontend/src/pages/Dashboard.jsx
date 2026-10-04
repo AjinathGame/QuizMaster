@@ -1,7 +1,8 @@
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Navbar from "../component/navbar/Navbar.jsx";
+import api from "../api/api";
 import {
   GraduationCap,
   LayoutDashboard,
@@ -11,71 +12,238 @@ import {
   ChartNoAxesCombined,
   UserRound,
   LogOut,
-  Bell,
   Search,
   ArrowRight,
   FileQuestion,
   Target,
   Clock3,
   TrendingUp,
-  ChevronDown,
   Zap,
-  Menu,
-  X,
 } from "lucide-react";
 
-const stats = [
+const initialStats = [
   {
     title: "Total Quizzes",
-    value: "12",
+    value: 0,
     icon: FileQuestion,
     color: "bg-blue-50 text-blue-600",
-    trend: "+2 this week",
+    trend: "Your quizzes",
   },
   {
     title: "Average Score",
-    value: "86%",
+    value: "0%",
     icon: Target,
     color: "bg-emerald-50 text-emerald-600",
-    trend: "+5% this month",
+    trend: "Average performance",
   },
   {
     title: "Total Attempts",
-    value: "28",
+    value: 0,
     icon: BookOpen,
     color: "bg-violet-50 text-violet-600",
     trend: "Keep practicing",
   },
   {
     title: "Best Score",
-    value: "100%",
+    value: "0%",
     icon: Trophy,
     color: "bg-orange-50 text-orange-600",
     trend: "Personal best",
   },
 ];
 
-const recentResults = [
-  { topic: "JavaScript", score: "5/5", percentage: 100, date: "Oct 03, 2026" },
-  { topic: "React", score: "4/5", percentage: 80, date: "Oct 02, 2026" },
-  { topic: "Python", score: "3/5", percentage: 60, date: "Oct 01, 2026" },
-  { topic: "HTML & CSS", score: "4/5", percentage: 80, date: "Sep 29, 2026" },
-  { topic: "JavaScript", score: "5/5", percentage: 100, date: "Sep 27, 2026" },
-];
+const getArray = (data, keys = []) => {
+  if (Array.isArray(data)) return data;
 
-const navItems = [
-  { label: "Dashboard", path: "/dashboard", icon: LayoutDashboard },
-  { label: "Generate Quiz", path: "/generate-quiz", icon: Sparkles },
-  { label: "My Quizzes", path: "/my-quizzes", icon: BookOpen },
-  { label: "Results", path: "/results", icon: Trophy },
-  { label: "Analytics", path: "/analytics", icon: ChartNoAxesCombined },
-  { label: "Profile", path: "/profile", icon: UserRound },
-];
+  for (const key of keys) {
+    if (Array.isArray(data?.[key])) return data[key];
+  }
+
+  return [];
+};
+
+const getPercentage = (result) => {
+  if (typeof result.percentage === "number") {
+    return result.percentage;
+  }
+
+  const score = Number(result.score ?? 0);
+  const total = Number(
+    result.totalQuestions ?? result.total ?? 0
+  );
+
+  return total > 0 ? Math.round((score / total) * 100) : 0;
+};
+
+const formatDate = (date) => {
+  if (!date) return "N/A";
+
+  const parsedDate = new Date(date);
+
+  if (Number.isNaN(parsedDate.getTime())) return "N/A";
+
+  return parsedDate.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+};
 
 export default function Dashboard() {
   const [search, setSearch] = useState("");
-  const [mobileMenu, setMobileMenu] = useState(false);
+  const [results, setResults] = useState([]);
+  const [quizzes, setQuizzes] = useState([]);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const navigate = useNavigate();
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchDashboard = async () => {
+      setLoading(true);
+      setError("");
+
+      try {
+        const requests = await Promise.allSettled([
+          api.get("/results/my-results"),
+          api.get("/quizzes"),
+          api.get("/users/me"),
+        ]);
+
+        if (!active) return;
+
+        const [resultsResponse, quizzesResponse, userResponse] =
+          requests;
+
+        if (resultsResponse.status === "fulfilled") {
+          setResults(
+            getArray(resultsResponse.value.data, [
+              "results",
+              "data",
+              "attempts",
+            ])
+          );
+        } else {
+          console.error(
+            "Results API error:",
+            resultsResponse.reason
+          );
+        }
+
+        if (quizzesResponse.status === "fulfilled") {
+          setQuizzes(
+            getArray(quizzesResponse.value.data, [
+              "quizzes",
+              "data",
+            ])
+          );
+        } else {
+          console.error(
+            "Quizzes API error:",
+            quizzesResponse.reason
+          );
+        }
+
+        if (userResponse.status === "fulfilled") {
+          const userData = userResponse.value.data;
+          setUser(
+            userData.user ??
+            userData.data ??
+            userData
+          );
+        } else {
+          console.error(
+            "User API error:",
+            userResponse.reason
+          );
+        }
+
+        if (
+          requests.every(
+            (request) => request.status === "rejected"
+          )
+        ) {
+          setError("Unable to load dashboard data.");
+        }
+      } catch (err) {
+        if (active) {
+          setError("Unable to load dashboard data.");
+          console.error(err);
+        }
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    fetchDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const stats = useMemo(() => {
+    const attempts = results.filter(
+      (item) => item.status === "submitted" || !item.status
+    );
+
+    const percentages = attempts.map(getPercentage);
+
+    const average =
+      percentages.length > 0
+        ? Math.round(
+            percentages.reduce((sum, value) => sum + value, 0) /
+              percentages.length
+          )
+        : 0;
+
+    const best =
+      percentages.length > 0
+        ? Math.max(...percentages)
+        : 0;
+
+    return initialStats.map((stat, index) => {
+      const values = [
+        quizzes.length,
+        `${average}%`,
+        attempts.length,
+        `${best}%`,
+      ];
+
+      return {
+        ...stat,
+        value: values[index],
+      };
+    });
+  }, [results, quizzes]);
+
+  const recentResults = useMemo(() => {
+    return [...results]
+      .sort(
+        (a, b) =>
+          new Date(b.submittedAt ?? b.createdAt ?? 0) -
+          new Date(a.submittedAt ?? a.createdAt ?? 0)
+      )
+      .slice(0, 10)
+      .map((result) => {
+        const percentage = getPercentage(result);
+
+        return {
+          topic:
+            result.topic ??
+            result.quiz?.topic ??
+            result.quiz?.title ??
+            "Quiz",
+          score: `${result.score ?? 0}/${result.totalQuestions ?? result.total ?? 0}`,
+          percentage,
+          date: formatDate(
+            result.submittedAt ?? result.createdAt
+          ),
+        };
+      });
+  }, [results]);
 
   const filteredResults = recentResults.filter((result) =>
     result.topic.toLowerCase().includes(search.toLowerCase())
@@ -83,15 +251,21 @@ export default function Dashboard() {
 
   const handleLogout = () => {
     localStorage.removeItem("token");
+    localStorage.removeItem("user");
     navigate("/login");
   };
 
+  const displayName =
+    user?.name ??
+    user?.fullName ??
+    user?.username ??
+    "Learner";
+
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-[#f5f8ff] text-slate-800">
-        <Navbar/>
-      {/* Main Content */}
+      <Navbar />
+
       <div className="mx-auto max-w-[1600px] px-4 py-7 sm:px-6 sm:py-9 lg:px-10">
-        {/* Search and Profile */}
         <div className="mb-6 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
           <div className="relative w-full sm:max-w-[360px]">
             <Search
@@ -109,27 +283,36 @@ export default function Dashboard() {
 
           <div className="flex items-center gap-2 text-sm text-slate-500">
             <Clock3 size={16} />
-            <span>Saturday, October 3, 2026</span>
+            <span>
+              {new Date().toLocaleDateString("en-IN", {
+                weekday: "long",
+                day: "2-digit",
+                month: "long",
+                year: "numeric",
+              })}
+            </span>
           </div>
         </div>
 
-        {/* Welcome Banner */}
         <section className="relative mb-7 flex min-h-[190px] items-center justify-between overflow-hidden rounded-2xl bg-gradient-to-r from-[#10285d] via-[#16489b] to-[#2874e9] p-6 text-white shadow-lg shadow-blue-200/50 sm:p-9">
           <div className="pointer-events-none absolute -right-10 -top-32 h-72 w-72 rounded-full border-[35px] border-white/5" />
           <div className="pointer-events-none absolute right-44 top-20 h-48 w-48 rounded-full bg-blue-300/10 blur-3xl" />
 
-          <div className="relative z-10 max-w-[650px] animate-[slideUp_0.6s_ease-out]">
+          <div className="relative z-10 max-w-[650px]">
             <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-semibold text-blue-100">
               <Sparkles size={14} />
               YOUR LEARNING JOURNEY
             </div>
+
             <h2 className="text-2xl font-extrabold tracking-tight sm:text-3xl lg:text-4xl">
-              Welcome back, Ajinath!
+              Welcome back, {displayName}!
             </h2>
+
             <p className="mt-3 max-w-[500px] text-sm leading-relaxed text-blue-100 sm:text-base">
-              Keep learning, keep growing. Challenge yourself with AI-powered
-              quizzes and track your progress.
+              Keep learning, keep growing. Challenge yourself
+              with AI-powered quizzes and track your progress.
             </p>
+
             <button
               type="button"
               onClick={() => navigate("/generate-quiz")}
@@ -148,27 +331,41 @@ export default function Dashboard() {
             <div className="grid h-20 w-20 place-items-center rounded-2xl bg-white/15 text-cyan-200 shadow-lg">
               <GraduationCap size={54} strokeWidth={1.5} />
             </div>
-            <Sparkles className="absolute -right-1 top-2 text-cyan-200" size={24} />
-            <Trophy className="absolute -bottom-1 left-0 text-yellow-300" size={23} />
+            <Sparkles
+              className="absolute -right-1 top-2 text-cyan-200"
+              size={24}
+            />
+            <Trophy
+              className="absolute -bottom-1 left-0 text-yellow-300"
+              size={23}
+            />
           </div>
         </section>
 
-        {/* Statistics */}
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+
         <section className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {stats.map(({ title, value, icon: Icon, color, trend }, index) => (
+          {stats.map(({ title, value, icon: Icon, color, trend }) => (
             <div
               key={title}
-              style={{ animationDelay: `${index * 100}ms` }}
-              className="group rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-100 hover:shadow-xl hover:shadow-blue-100/50 animate-[slideUp_0.6s_ease-out_both]"
+              className="group rounded-2xl border border-slate-100 bg-white p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-blue-100 hover:shadow-xl hover:shadow-blue-100/50"
             >
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-sm font-medium text-slate-500">{title}</p>
+                  <p className="text-sm font-medium text-slate-500">
+                    {title}
+                  </p>
                   <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-[#142b60]">
-                    {value}
+                    {loading ? "..." : value}
                   </h3>
                 </div>
-                <div className={`grid h-12 w-12 place-items-center rounded-xl ${color} transition-transform duration-300 group-hover:scale-110`}>
+                <div
+                  className={`grid h-12 w-12 place-items-center rounded-xl ${color}`}
+                >
                   <Icon size={23} />
                 </div>
               </div>
@@ -180,9 +377,7 @@ export default function Dashboard() {
           ))}
         </section>
 
-        {/* Results and Quick Action */}
         <section className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[1.7fr_0.85fr]">
-          {/* Recent Results */}
           <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-shadow duration-300 hover:shadow-md">
             <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-5 sm:px-6">
               <div>
@@ -195,7 +390,7 @@ export default function Dashboard() {
               </div>
               <Link
                 to="/results"
-                className="inline-flex cursor-pointer items-center gap-1 text-xs font-bold text-blue-600 transition hover:text-blue-800 sm:text-sm"
+                className="inline-flex items-center gap-1 text-xs font-bold text-blue-600 transition hover:text-blue-800 sm:text-sm"
               >
                 View All
                 <ArrowRight size={15} />
@@ -213,46 +408,65 @@ export default function Dashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredResults.map((result, index) => (
-                    <tr
-                      key={`${result.topic}-${result.date}`}
-                      style={{ animationDelay: `${index * 80}ms` }}
-                      className="border-t border-slate-100 text-sm transition-colors duration-200 hover:bg-blue-50/50 animate-[fadeIn_0.5s_ease-out_both]"
-                    >
-                      <td className="px-5 py-4 font-semibold text-slate-700 sm:px-6">
-                        {result.topic}
-                      </td>
-                      <td className="px-5 py-4 font-semibold text-slate-600">
-                        {result.score}
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-16 overflow-hidden rounded-full bg-slate-100">
-                            <div
-                              className={`h-full rounded-full transition-all duration-700 ${
-                                result.percentage >= 80
-                                  ? "bg-emerald-500"
-                                  : result.percentage >= 60
-                                  ? "bg-blue-500"
-                                  : "bg-orange-400"
-                              }`}
-                              style={{ width: `${result.percentage}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-bold text-slate-600">
-                            {result.percentage}%
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-xs text-slate-500">
-                        {result.date}
+                  {loading ? (
+                    <tr>
+                      <td
+                        colSpan="4"
+                        className="px-5 py-10 text-center text-sm text-slate-400"
+                      >
+                        Loading results...
                       </td>
                     </tr>
-                  ))}
-                  {filteredResults.length === 0 && (
+                  ) : filteredResults.length > 0 ? (
+                    filteredResults.map((result, index) => (
+                      <tr
+                        key={`${result.topic}-${result.date}-${index}`}
+                        className="border-t border-slate-100 text-sm transition-colors hover:bg-blue-50/50"
+                      >
+                        <td className="px-5 py-4 font-semibold text-slate-700 sm:px-6">
+                          {result.topic}
+                        </td>
+                        <td className="px-5 py-4 font-semibold text-slate-600">
+                          {result.score}
+                        </td>
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-16 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className={`h-full rounded-full ${
+                                  result.percentage >= 80
+                                    ? "bg-emerald-500"
+                                    : result.percentage >= 60
+                                    ? "bg-blue-500"
+                                    : "bg-orange-400"
+                                }`}
+                                style={{
+                                  width: `${Math.min(
+                                    100,
+                                    Math.max(0, result.percentage)
+                                  )}%`,
+                                }}
+                              />
+                            </div>
+                            <span className="text-xs font-bold text-slate-600">
+                              {result.percentage}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 text-xs text-slate-500">
+                          {result.date}
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
                     <tr>
-                      <td colSpan="4" className="px-5 py-10 text-center text-sm text-slate-400">
-                        No matching results found.
+                      <td
+                        colSpan="4"
+                        className="px-5 py-10 text-center text-sm text-slate-400"
+                      >
+                        {search
+                          ? "No matching results found."
+                          : "No quiz results available yet."}
                       </td>
                     </tr>
                   )}
@@ -263,7 +477,7 @@ export default function Dashboard() {
             <div className="border-t border-slate-100 px-5 py-4 sm:px-6">
               <Link
                 to="/results"
-                className="inline-flex cursor-pointer items-center gap-2 text-sm font-semibold text-blue-600 transition hover:gap-3"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-blue-600 transition hover:gap-3"
               >
                 Explore all results
                 <ArrowRight size={16} />
@@ -271,19 +485,19 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Quick Action Card */}
           <div className="relative overflow-hidden rounded-2xl border border-slate-100 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
             <div className="absolute -right-12 -top-12 h-40 w-40 rounded-full bg-blue-50" />
             <div className="relative z-10">
               <div className="mb-5 grid h-12 w-12 place-items-center rounded-xl bg-blue-50 text-blue-600">
                 <Zap size={24} />
               </div>
+
               <h3 className="text-xl font-extrabold text-[#142b60]">
                 Generate New Quiz
               </h3>
               <p className="mt-3 text-sm leading-relaxed text-slate-500">
-                Create a personalized quiz with AI. Choose any topic, difficulty
-                level and number of questions.
+                Create a personalized quiz with AI. Choose any
+                topic, difficulty level and number of questions.
               </p>
 
               <div className="my-6 space-y-3">
@@ -292,7 +506,10 @@ export default function Dashboard() {
                   "Select difficulty level",
                   "Get instant results",
                 ].map((item) => (
-                  <div key={item} className="flex items-center gap-2 text-sm text-slate-600">
+                  <div
+                    key={item}
+                    className="flex items-center gap-2 text-sm text-slate-600"
+                  >
                     <span className="grid h-5 w-5 place-items-center rounded-full bg-emerald-50 text-emerald-600">
                       <ArrowRight size={12} />
                     </span>
@@ -304,17 +521,19 @@ export default function Dashboard() {
               <button
                 type="button"
                 onClick={() => navigate("/generate-quiz")}
-                className="group flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-blue-200 transition-all duration-300 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-lg active:translate-y-0"
+                className="group flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3.5 text-sm font-bold text-white shadow-md shadow-blue-200 transition-all hover:-translate-y-0.5 hover:bg-blue-700"
               >
                 <Sparkles size={17} />
                 Generate Quiz
-                <ArrowRight size={16} className="transition-transform group-hover:translate-x-1" />
+                <ArrowRight
+                  size={16}
+                  className="transition-transform group-hover:translate-x-1"
+                />
               </button>
             </div>
           </div>
         </section>
 
-        {/* Bottom Learning Tip */}
         <section className="mt-7 flex flex-col justify-between gap-3 rounded-2xl border border-blue-100 bg-gradient-to-r from-blue-50 to-white p-5 sm:flex-row sm:items-center sm:px-6">
           <div className="flex items-center gap-3">
             <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-blue-600 shadow-sm">
@@ -331,20 +550,19 @@ export default function Dashboard() {
           </div>
           <Link
             to="/analytics"
-            className="inline-flex cursor-pointer items-center gap-2 self-start text-sm font-bold text-blue-600 transition hover:text-blue-800 sm:self-center"
+            className="inline-flex items-center gap-2 self-start text-sm font-bold text-blue-600 transition hover:text-blue-800 sm:self-center"
           >
             View Analytics
             <ArrowRight size={16} />
           </Link>
         </section>
 
-        {/* Footer */}
         <footer className="mt-8 flex flex-col items-center justify-between gap-2 border-t border-slate-200 py-5 text-xs text-slate-400 sm:flex-row">
           <p>© 2026 QuizMaster. Learn · Practice · Grow.</p>
           <button
             type="button"
             onClick={handleLogout}
-            className="inline-flex cursor-pointer items-center gap-2 font-semibold text-slate-500 transition hover:text-red-500"
+            className="inline-flex items-center gap-2 font-semibold text-slate-500 transition hover:text-red-500"
           >
             <LogOut size={15} />
             Logout
